@@ -1,5 +1,6 @@
-require './suk'
 require 'pry'
+
+require './hosts'
 
 $hosts = Hosts.new
 
