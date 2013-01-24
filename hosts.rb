@@ -1,20 +1,122 @@
 require 'yaml'
 require 'net/ssh'
 
-class HBA
-	attr_accessor :dev
-	attr_accessor :wwn
-	attr_accessor :speed
+def get_host_by_type(type)
+	return {
+		'aix' => AixHost,
+		'hp-ux' => HpuxHost,
+		'brocade' => BrocadeHost
+	}[type].new
 end
 
-class Host
+class GenericHost
 	attr_accessor :type
 	attr_accessor :host
 	attr_accessor :user
 	attr_accessor :pass
 	attr_accessor :ssh_conn
 
+	def exec(cmd)
+		@ssh_conn ||= Net::SSH.start(@host, @user, :password => @pass)
+		return @ssh_conn.exec!(cmd).strip
+	end
+
+	def _sed_search(str)
+		return "sed -n 's/#{str}\\(.*\\).*/\\1/p'"
+	end
+
+end
+
+class HBA
+	attr_accessor :dev
+	attr_accessor :speed
+
+	def initialize(dev, wwn, speed)
+		@dev = dev
+		set_wwn wwn
+		set_speed speed
+	end
+
+	def set_wwn(value)
+		raise "wwn not valid" unless value.size >= 16
+		v = value[-16, 16].downcase
+		@wwn = "#{v[0, 2]}:#{v[2, 2]}:#{v[4, 2]}:#{v[6, 2]}:#{v[8, 2]}:#{v[10, 2]}:#{v[12, 2]}:#{v[14, 2]}"
+	end
+
+	def set_speed(value)
+		raise "speed not valid" unless value.size >= 1
+		@speed = value[0].to_i
+	end
+
+	def wwn=(value)
+		set_wwn(value)
+	end
+
+	def wwn
+		return @wwn
+	end
+
+	def inspect
+		return "#{@dev}, #{@wwn}, #{@speed}"
+	end
+end
+
+class Host < GenericHost
 	attr_accessor :hbas
+
+	def initialize
+		@hbas = nil
+	end
+
+	def fetch_hba
+		@hbas = []
+		puts "fetching hba from #{@host}"
+		return unless defined? cmd_list_hbas
+			
+		hba_devs = exec(cmd_list_hbas)
+		hba_devs.split.each do |dev|
+			wwn = exec(cmd_get_wwn(dev))
+			speed = exec(cmd_get_speed(dev))
+			hba = HBA.new(dev, wwn, speed)
+			@hbas.push(hba)
+		end
+	end
+end
+
+class AixHost < Host
+	def initialize
+		@type = 'aix'
+	end
+
+	def cmd_list_hbas
+		"lsdev -Cc adapter | grep fcs | awk '{print $1}'"
+	end
+
+	def cmd_get_wwn(dev)
+		"lscfg -vl #{dev} | #{_sed_search('Network Address\\.*')}"
+	end
+
+	def cmd_get_speed(dev)
+		"fcstat #{dev} | #{_sed_search('Port Speed (running):')}"
+	end
+end
+
+class HpuxHost < Host
+	def initialize
+		@type = 'hp-ux'
+	end
+
+	def cmd_list_hbas
+		"ls /dev | egrep 'fcd|td'"
+	end
+
+	def cmd_get_wwn(dev)
+		"/opt/fcms/bin/fcmsutil /dev/#{dev} | #{_sed_search('N_Port Port World Wide Name =')}"
+	end
+
+	def cmd_get_speed(dev)
+		"/opt/fcms/bin/fcmsutil /dev/#{dev} | #{_sed_search('Link Speed =')}"
+	end
 end
 
 class Hosts
@@ -27,8 +129,7 @@ class Hosts
 		hosts_hash = YAML.load_file('hosts.yml')['hosts']
 		hosts_hash.keys.each do |key|
 			info = hosts_hash[key]
-			host = Host.new
-			host.type = info['type']
+			host = get_host_by_type(info['type'])
 			host.host = info['host']
 			host.user = info['user']
 			host.pass = info['pass']
@@ -36,50 +137,13 @@ class Hosts
 		end
 	end
 
+	def fetch_hba
+		@hosts.each do |key, host|
+			host.fetch_hba
+		end
+	end
+
 	def all
 		return @hosts
 	end
-end
-
-
-def _exec(host, cmd)
-	host.ssh_conn ||= Net::SSH.start(host.host, host.user, :password => host.pass)
-	conn = host.ssh_conn
-	return conn.exec!(cmd).strip
-end
-
-def hba_list(host)
-	if host.type == 'brocade'
-		puts "no hba for brocade"
-		return
-	end
-	if host.type == 'aix'
-		cmd = "lsdev -Cc adapter | grep fcs | awk '{print $1}'"
-		hba_devs = _exec(host, cmd)
-		hba_devs.split.each do |dev|
-			cmd = "lscfg -vl #{dev} | #{_sed_search('Network Address\\.*')}"
-			wwn = _exec(host, cmd)
-			cmd = "fcstat #{dev} | #{_sed_search('Port Speed (running):')}"
-			speed = _exec(host, cmd)
-			puts "#{dev}, #{wwn}, #{speed}"
-		end
-		return
-	end
-	if host.type == 'hp-ux'
-		cmd = "ls /dev | egrep 'fcd|td'"
-		hba_devs = _exec(host, cmd)
-		hba_devs.split.each do |dev|
-			cmd = "/opt/fcms/bin/fcmsutil /dev/#{dev} | #{_sed_search('N_Port Port World Wide Name =')}"
-			wwn = _exec(host, cmd)
-			cmd = "/opt/fcms/bin/fcmsutil /dev/#{dev} | #{_sed_search('Link Speed =')}"
-			speed = _exec(host, cmd)
-			puts "#{dev}, #{wwn}, #{speed}"
-		end
-	end
-
-	return
-end
-
-def _sed_search(str)
-	return "sed -n 's/#{str}\\(.*\\).*/\\1/p'"
 end
