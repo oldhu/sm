@@ -6,26 +6,29 @@ require_relative 'fabric'
 $hosts = Hosts.new
 $fabric = Fabric.new($hosts)
 
-def hosts_list(verbose)
-  result = ""
+def hosts_list
+  puts "Name".ljust(18) + "Type".ljust(12) + "Host".ljust(20) + "User".ljust(10) + "Password".ljust(10) + "HBA".rjust(23)
+  puts '=' * 93
   $hosts.all.each do |key, h|
-    result += key + "\n"
-    next unless verbose
-    result += "  type: #{h.type}\n  host: #{h.host}\n  user: #{h.user}\n  pass: #{h.pass}\n  hbas:\n"
-    if not defined? h.hbas or h.hbas == nil
-      result += "    unknown\n"
-    else
-      result += "    no hba\n" if h.hbas.size == 0
-      i = 0
-      h.hbas.each do |hba|
-        result += "    #{i}. #{hba.dev}\n"
-        result += "       #{hba.wwn}\n"
-        result += "       #{hba.speed} Gbps\n"
-        i += 1
-      end
+    print key.ljust(18) + h.type.ljust(12) + h.host.ljust(20) + h.user.ljust(10) + h.pass.ljust(10)
+
+    if not defined? h.hbas
+      puts "Not Supported".rjust(23)
+      next
+    end
+    if h.hbas == nil
+      puts "Unknown".rjust(23)
+      next
+    end
+    if h.hbas.size == 0
+      puts "No HBA".rjust(23)
+      next
+    end
+    puts h.hbas[0].wwn.ljust(23)
+    (1..h.hbas.size - 1).each do |i|
+      puts ' ' * 70 + h.hbas[i].wwn.rjust(23)
     end
   end
-  return result
 end
 
 def hosts_reload
@@ -49,16 +52,13 @@ def fabric_find_host(host)
 end
 
 # hosts list
-# hosts list -v
 # hosts reload
 # hosts fetch hba
 Pry::Commands.block_command /hosts(.*)/ do |cmd|
   cmd = cmd.strip
   case cmd
   when "list"
-    output.puts hosts_list(false)
-  when "list -v"
-    output.puts hosts_list(true)
+    hosts_list
   when "reload"
     hosts_reload
     output.puts "reload from hosts.yml"
@@ -90,3 +90,10 @@ Pry::Commands.block_command /fabric (.*) (.*)/ do |cmd, host|
 end
 
 binding.pry
+
+# h = get_host('local')
+
+# h.upload('/Users/hu/Downloads/*.zip', '/tmp')
+# h.download('/tmp/*.zip', '/tmp/a/')
+# h.start_task('caffeinate -i')
+# h.wait_task('caffeinate')
