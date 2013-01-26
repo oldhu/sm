@@ -1,5 +1,6 @@
 require 'yaml'
 require 'net/ssh'
+require 'net/scp'
 
 def get_host_by_type(type)
   return {
@@ -16,9 +17,17 @@ class GenericHost
   attr_accessor :pass
   attr_accessor :ssh_conn
 
+  def ssh_connect
+    return if @ssh_conn
+    print "connecting to #{@host}..."
+    @ssh_conn = Net::SSH.start(@host, @user, :password => @pass)
+    puts "connected."
+  end
+
   def exec(cmd)
-    @ssh_conn ||= Net::SSH.start(@host, @user, :password => @pass)
-    return @ssh_conn.exec!(cmd).strip
+    ssh_connect
+    result = @ssh_conn.exec!(cmd)
+    result ? result.strip : ''
   end
 
   def _sed_search(str)
@@ -81,6 +90,72 @@ class Host < GenericHost
       @hbas.push(hba)
     end
   end
+
+  def upload(local, remote)
+    unless remote.start_with? '/'
+      puts "remote dir must start with /"
+      return
+    end
+    ssh_connect
+    Dir.glob(local) do |file|
+      puts "uploding #{file} to #{@host}:#{remote}"
+      @ssh_conn.scp.upload! file, remote do |ch, name, sent, total|
+        print "\r    #{name} - #{sent * 100 / total}% - #{sent}/#{total}"
+      end
+      print "\n"
+    end
+    puts "upload completed"
+  end
+
+  def download(remote, local)
+    unless remote.start_with? '/'
+      puts "remote dir must start with /"
+      return
+    end
+    ssh_connect
+    files = exec("find #{remote}").split("\n")
+    files.each do |file|
+      file = file.strip
+      puts "downloading #{@host}:#{file} to #{local}"
+      @ssh_conn.scp.download! file, local do |ch, name, sent, total|
+        print "\r    #{name}: #{sent * 100 / total}% \t #{sent}/#{total}"
+      end
+      print "\n"
+    end
+    puts "download completed"
+  end
+
+  def start_task(task)
+    puts "starting #{task} as backgroud task"
+    cmd = "nohup #{task} > /dev/null 2> /dev/null < /dev/null &"
+    exec(cmd)
+  end
+
+  def brackets_first_char(str)
+    return str if str.size < 1
+    return "[#{str[0]}]#{str[1..-1]}"
+  end
+
+  def kill(str)
+    cmd = "ps -aef | grep #{brackets_first_char(str)} | awk '{print $2}' | xargs kill"
+    exec(cmd)
+  end
+
+  def check_task(str)
+    cmd = "ps -aef | grep #{brackets_first_char(str)}"
+    return false if exec(cmd).size == 0
+    true
+  end
+
+  def wait_task(str)
+    print "waiting for #{str} to end..."
+    while true
+      break unless check_task(str)
+      sleep 1
+    end
+    puts "gone."
+  end
+
 end
 
 class AixHost < Host
@@ -122,10 +197,10 @@ end
 class Hosts
   def initialize
     @hosts = {}
-    _load_yaml
+    load_yaml
   end
 
-  def _load_yaml
+  def load_yaml
     hosts_hash = YAML.load_file('hosts.yml')['hosts']
     hosts_hash.keys.each do |key|
       info = hosts_hash[key]
@@ -140,6 +215,23 @@ class Hosts
   def fetch_hba
     @hosts.each do |key, host|
       host.fetch_hba if defined? host.fetch_hba
+    end
+  end
+
+  def start_task(task)
+    @hosts.each do |key, host|
+      host.start_task(task) if defined? host.start_task
+    end
+  end
+
+  def wait_task(str)
+    hosts = @hosts.values.select { |h| defined? h.check_task }
+    while true
+      break if hosts.size == 0
+      hosts.each do |h| 
+        hosts.delete(h) unless h.check_task
+      end
+      sleep 1
     end
   end
 
