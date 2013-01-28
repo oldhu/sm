@@ -2,11 +2,12 @@ require 'yaml'
 require 'net/ssh'
 require 'net/scp'
 
-def get_host_by_type(type)
+def new_host_by_type(type)
   return {
     'aix' => AixHost,
     'hp-ux' => HpuxHost,
-    'brocade' => BrocadeHost
+    'brocade' => BrocadeHost,
+    'symmetrix' => SymmetrixHost
   }[type].new
 end
 
@@ -204,7 +205,7 @@ class Hosts
     hosts_hash = YAML.load_file('hosts.yml')['hosts']
     hosts_hash.keys.each do |key|
       info = hosts_hash[key]
-      host = get_host_by_type(info['type'])
+      host = new_host_by_type(info['type'])
       host.host = info['host']
       host.user = info['user']
       host.pass = info['pass']
@@ -232,6 +233,18 @@ class Hosts
         hosts.delete(h) unless h.check_task
       end
       sleep 1
+    end
+  end
+
+  def fetch_symids
+    @hosts.each do |key, host|
+      host.fetch_symids if defined? host.fetch_symids
+    end
+  end
+
+  def fetch_fa_wwns(sid)
+    @hosts.each do |key, host|
+      host.fetch_fa_wwns(sid) if defined? host.fetch_fa_wwns
     end
   end
 

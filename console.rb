@@ -1,10 +1,6 @@
 require 'pry'
 
-require_relative 'hosts'
-require_relative 'fabric'
-
-$hosts = Hosts.new
-$fabric = Fabric.new($hosts)
+require_relative 'srm'
 
 def hosts_list
   puts "Name".ljust(18) + "Type".ljust(12) + "Host".ljust(20) + "User".ljust(10) + "Password".ljust(10) + "HBA".rjust(23)
@@ -29,14 +25,6 @@ def hosts_list
       puts ' ' * 70 + h.hbas[i].wwn.rjust(23)
     end
   end
-end
-
-def hosts_reload
-  $hosts = Hosts.new
-end
-
-def get_host(name)
-  return $hosts.all[name]
 end
 
 def hosts_fetch_hba
@@ -91,9 +79,5 @@ end
 
 binding.pry
 
-# h = get_host('local')
-
-# h.upload('/Users/hu/Downloads/*.zip', '/tmp')
-# h.download('/tmp/*.zip', '/tmp/a/')
-# h.start_task('caffeinate -i')
-# h.wait_task('caffeinate')
+# $hosts.fetch_symids
+# $hosts.fetch_fa_wwns('819')
