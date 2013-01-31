@@ -15,8 +15,8 @@ class BrocadePort
 end
 
 class BrocadeHost < SwitchHost
-  def initialize
-    @type = 'brocade'
+  def initialize(info)
+    super(info)
     @zones = {}
     @ports = []
   end
@@ -151,20 +151,39 @@ class Fabric
       host.fetch_hba
     end
     load_fabric
+    puts "name".ljust(10) + "wwn".ljust(26) + "switch".ljust(16) + "port".ljust(8) + "zone".ljust(30)
+    puts '=' * 90
     host.hbas.each do |hba|
+      print hba.dev.ljust(10) + hba.wwn.ljust(26)
+
+      # output port infomation
+      port = nil
+      switchhost = nil
       @switches.each do |key, switch|
+        switchhost = switch.host
         port = switch.find_port_by_wwn(hba.wwn)
-        if port
-          puts "hba #{hba.dev} #{hba.wwn} is online at switch #{switch.host} port #{port.slot}/#{port.port}"
-        end
+        break if port
+      end
+      if port
+        print switchhost.ljust(16) + "#{port.slot}/#{port.port}".ljust(8)
+      else
+        print ' ' * 24
+      end
+
+      # output zone information
+      found_in_zone = false
+      @switches.each do |key, switch|
         zones = switch.find_wwn_in_zones(hba.wwn)
         if zones.size > 0
-          puts "hba #{hba.dev} #{hba.wwn} found in the following zones"
+          found_in_zone = true
           zones.each do |zone|
-            puts "    #{zone}"
+            puts zone.ljust(30)
+            print ' ' * 60
           end
+          print "\r" + '-' * 90 + "\n"
         end
       end # each switch
+      print "\n" + '-' * 90 + "\n" unless found_in_zone
     end # each hba
   end
 

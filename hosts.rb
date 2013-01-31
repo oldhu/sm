@@ -2,13 +2,13 @@ require 'yaml'
 require 'net/ssh'
 require 'net/scp'
 
-def new_host_by_type(type)
+def new_host_by_type(info)
   return {
     'aix' => AixHost,
     'hp-ux' => HpuxHost,
     'brocade' => BrocadeHost,
     'symmetrix' => SymmetrixHost
-  }[type].new
+  }[info['type']].new(info)
 end
 
 class GenericHost
@@ -17,6 +17,13 @@ class GenericHost
   attr_accessor :user
   attr_accessor :pass
   attr_accessor :ssh_conn
+
+  def initialize(info)
+    @type = info['type']
+    @host = info['host']
+    @user = info['user']
+    @pass = info['pass']
+  end
 
   def ssh_connect
     return if @ssh_conn
@@ -74,7 +81,8 @@ end
 class Host < GenericHost
   attr_accessor :hbas
 
-  def initialize
+  def initialize(info)
+    super(info)
     @hbas = nil
   end
 
@@ -160,10 +168,6 @@ class Host < GenericHost
 end
 
 class AixHost < Host
-  def initialize
-    @type = 'aix'
-  end
-
   def cmd_list_hbas
     "lsdev -Cc adapter | grep fcs | awk '{print $1}'"
   end
@@ -178,10 +182,6 @@ class AixHost < Host
 end
 
 class HpuxHost < Host
-  def initialize
-    @type = 'hp-ux'
-  end
-
   def cmd_list_hbas
     "ls /dev | egrep 'fcd|td|fclp'"
   end
@@ -205,10 +205,7 @@ class Hosts
     hosts_hash = YAML.load_file('hosts.yml')['hosts']
     hosts_hash.keys.each do |key|
       info = hosts_hash[key]
-      host = new_host_by_type(info['type'])
-      host.host = info['host']
-      host.user = info['user']
-      host.pass = info['pass']
+      host = new_host_by_type(info)
       @hosts[key] = host
     end
   end
@@ -233,18 +230,6 @@ class Hosts
         hosts.delete(h) unless h.check_task
       end
       sleep 1
-    end
-  end
-
-  def fetch_symids
-    @hosts.each do |key, host|
-      host.fetch_symids if defined? host.fetch_symids
-    end
-  end
-
-  def fetch_fa_wwns(sid)
-    @hosts.each do |key, host|
-      host.fetch_fa_wwns(sid) if defined? host.fetch_fa_wwns
     end
   end
 

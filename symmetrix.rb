@@ -1,8 +1,13 @@
 require 'rexml/document'
 
 class SymmetrixHost < Host
+  def initialize(info)
+    super(info)
+    @sid = info['sid']
+  end
+
   def exec(cmd)
-    cmd = 'PATH=$PATH:/opt/emc/SYMCLI/bin/;export SYMCLI_OUTPUT_MODE=XML_ELEMENT;' + cmd    
+    cmd = 'PATH=$PATH:/opt/emc/SYMCLI/bin/;export SYMCLI_OUTPUT_MODE=XML_ELEMENT;' + cmd 
     return REXML::Document.new(super(cmd))
   end
 
@@ -33,4 +38,9 @@ class SymmetrixHost < Host
       end
     end
   end
+
+  def fetch_hba
+    fetch_fa_wwns(@sid)
+  end
+
 end
